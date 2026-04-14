@@ -92,4 +92,26 @@ describe('calculateWaitMs', () => {
     const wait = calculateWaitMs({ hour: 15, minute: 0, timezone: 'Invalid/Zone' }, 60, 5);
     assert.ok(Math.abs(wait - (5 * 3600 + 60) * 1000) < 2000); // fallback
   });
+  it('computes ~2h wait for UTC+ timezone same-day reset, not ~26h', () => {
+    // Simulate: "resets 10pm (Europe/Warsaw)" detected at 19:49 Warsaw time.
+    // Europe/Warsaw = UTC+2 in April (CEST). 19:49 Warsaw = 17:49 UTC.
+    // Target is 22:00 Warsaw = 20:00 UTC. Expected wait ≈ 2h 11m, not ~26h.
+    const now = new Date('2026-04-14T17:49:16Z'); // 19:49:16 Warsaw
+    const wait = calculateWaitMs(
+      { hour: 22, minute: 0, timezone: 'Europe/Warsaw' }, 60, 5, now
+    );
+    const waitHours = wait / 3_600_000;
+    assert.ok(waitHours > 1.5 && waitHours < 3,
+      `Expected ~2h wait, got ${waitHours.toFixed(2)}h`);
+  });
+  it('waits until tomorrow if UTC+ same-day reset already passed', () => {
+    // 22:30 Warsaw = 20:30 UTC. Target 10pm already passed → wait ~23.5h.
+    const now = new Date('2026-04-14T20:30:00Z'); // 22:30 Warsaw
+    const wait = calculateWaitMs(
+      { hour: 22, minute: 0, timezone: 'Europe/Warsaw' }, 60, 5, now
+    );
+    const waitHours = wait / 3_600_000;
+    assert.ok(waitHours > 22 && waitHours < 25,
+      `Expected ~23.5h wait, got ${waitHours.toFixed(2)}h`);
+  });
 });

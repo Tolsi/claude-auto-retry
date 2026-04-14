@@ -81,6 +81,16 @@ export function calculateWaitMs(parsed, marginSeconds = 60, fallbackHours = 5, n
       candidate += diffMin * 60_000;
     }
 
+    // The iterative correction may converge on tomorrow's occurrence when
+    // the initial UTC guess (line 66) lands past midnight in the target
+    // timezone. This happens for all UTC+ zones (e.g. Europe/Warsaw UTC+2:
+    // "22:00Z" = 00:00 Warsaw → correction adds 22h → tomorrow's 10pm).
+    // Roll back one day if today's occurrence is still in the future.
+    const prevDay = candidate - 86400_000;
+    if (prevDay > now.getTime()) {
+      candidate = prevDay;
+    }
+
     return candidate;
   }
 
