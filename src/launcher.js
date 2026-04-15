@@ -2,7 +2,7 @@ import { spawn, fork } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { isInsideTmux, getCurrentPane, getTmuxVersion } from './tmux.js';
+import { isInsideTmux, getCurrentPane, getTmuxVersion, buildSetWindowOptionArgs } from './tmux.js';
 import { isRateLimited } from './patterns.js';
 import { parseResetTime, calculateWaitMs } from './time-parser.js';
 import { loadConfig } from './config.js';
@@ -133,7 +133,8 @@ async function createTmuxSession(args) {
   // Build the command to run inside tmux
   const escapedLauncher = shellEscape(launcherPath);
   const escapedArgs = args.map(a => shellEscape(a)).join(' ');
-  const innerCmd = `CLAUDE_AUTO_RETRY_ACTIVE=1 node ${escapedLauncher} ${escapedArgs}; exec bash`;
+  // Use bash -c so the session dies when the launcher exits
+  const innerCmd = `CLAUDE_AUTO_RETRY_ACTIVE=1 exec node ${escapedLauncher} ${escapedArgs}`;
 
   // Build env propagation args
   // tmux -e flag requires tmux >= 3.0; for older versions, prefix env exports in the command
@@ -163,6 +164,11 @@ async function createTmuxSession(args) {
 
   try {
     execFileSync('tmux', newSessionArgs);
+
+    // Enable mouse mode on the default window (scroll, copy-mode, pane selection) — tmux >= 2.1
+    execFileSync('tmux', buildSetWindowOptionArgs(`${sessionName}:0`, 'mouse', 'on'));
+    // Set vi-style copy mode keys for copy-mode navigation
+    execFileSync('tmux', buildSetWindowOptionArgs(`${sessionName}:0`, 'mode-keys', 'vi'));
 
     // Attach to the session
     const attachResult = spawn('tmux', ['attach-session', '-t', sessionName], {
