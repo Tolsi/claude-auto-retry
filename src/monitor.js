@@ -86,9 +86,21 @@ export async function processOneTick(state, tmuxAdapter, pane, config, isAlive) 
 
   if (isRateLimited(stripped, config.customPatterns)) {
     const message = findRateLimitMessage(stripped, config.customPatterns);
-    state.lastRateLimitMessage = message;
     const parsed = message ? parseResetTime(message) : null;
-    state.waitUntil = Date.now() + calculateWaitMs(parsed, config.marginSeconds, config.fallbackWaitHours);
+    const waitMs = calculateWaitMs(parsed, config.marginSeconds, config.fallbackWaitHours);
+
+    // Stale-message guard: if an absolute reset time is already in the past,
+    // calculateWaitMs adds 24h and returns ~next-day waiting. That's almost
+    // never what we want — the Claude TUI keeps old "resets HH:MMam" lines
+    // in scrollback, and treating them as "tomorrow" makes the monitor sleep
+    // through the actual fresh rate limit. If the wait is suspiciously close
+    // to a full day, stay in monitoring and re-check on the next tick.
+    if (waitMs > 22 * 3600 * 1000) {
+      return 'monitoring';
+    }
+
+    state.lastRateLimitMessage = message;
+    state.waitUntil = Date.now() + waitMs;
     state.status = 'waiting';
     return 'waiting';
   }
