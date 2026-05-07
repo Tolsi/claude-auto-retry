@@ -2,7 +2,7 @@ import { spawn, fork } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { isInsideTmux, getCurrentPane, getTmuxVersion, buildSetWindowOptionArgs } from './tmux.js';
+import { isInsideTmux, getCurrentPane, capturePane, getTmuxVersion, buildSetWindowOptionArgs } from './tmux.js';
 import { isRateLimited } from './patterns.js';
 import { parseResetTime, calculateWaitMs } from './time-parser.js';
 import { loadConfig } from './config.js';
@@ -30,47 +30,78 @@ function shellEscape(s) {
 async function launchInteractive(args) {
   const claudeBin = findClaudeBinary();
   const pane = getCurrentPane();
+  const config = await loadConfig();
+  let retries = 0;
 
-  const claude = spawn(claudeBin, args, {
-    stdio: 'inherit',
-    env: { ...process.env, CLAUDE_AUTO_RETRY_ACTIVE: '1' },
-  });
-
-  // Check spawn succeeded before using PID
-  if (claude.pid == null) {
-    claude.on('error', (err) => {
-      process.stderr.write(`[claude-auto-retry] Failed to start claude: ${err.message}\n`);
+  while (true) {
+    const claude = spawn(claudeBin, args, {
+      stdio: 'inherit',
+      env: { ...process.env, CLAUDE_AUTO_RETRY_ACTIVE: '1' },
     });
-    return new Promise((resolve) => {
+
+    if (claude.pid == null) {
+      claude.on('error', (err) => {
+        process.stderr.write(`[claude-auto-retry] Failed to start claude: ${err.message}\n`);
+      });
+      const exitCode = await new Promise((resolve) => {
+        claude.on('exit', (code) => resolve(code ?? 1));
+        claude.on('error', () => resolve(1));
+      });
+      return exitCode;
+    }
+
+    // Forward SIGWINCH for terminal resize
+    process.on('SIGWINCH', () => {
+      try { claude.kill('SIGWINCH'); } catch {}
+    });
+
+    // Start monitor as detached background process (first iteration only)
+    if (retries === 0 && pane) {
+      const monitor = fork(MONITOR_PATH, [pane, String(claude.pid)], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      monitor.unref();
+    }
+
+    // Forward signals to Claude
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      process.on(sig, () => {
+        try { claude.kill(sig); } catch {}
+      });
+    }
+
+    const exitCode = await new Promise((resolve) => {
       claude.on('exit', (code) => resolve(code ?? 1));
-      claude.on('error', () => resolve(1));
     });
+
+    // If Claude exited cleanly, we're done
+    if (exitCode === 0) return 0;
+
+    // Check pane content for rate limit detection
+    if (!pane) return exitCode;
+
+    const paneText = await capturePane(pane, 30);
+    if (!isRateLimited(paneText, config.customPatterns)) return exitCode;
+
+    // Rate limited — wait and retry
+    retries++;
+    if (retries > config.maxRetries) {
+      process.stderr.write(`[claude-auto-retry] Max retries (${config.maxRetries}) reached.\n`);
+      return exitCode;
+    }
+
+    const rateLimitMsg = paneText.split('\n').reverse().find(l => /resets?\s+in/i.test(l)) || paneText;
+    const parsed = parseResetTime(rateLimitMsg);
+    const waitMs = calculateWaitMs(parsed, config.marginSeconds, config.fallbackWaitHours);
+
+    // Print message to the pane
+    process.stderr.write(`[claude-auto-retry] Rate limited. Restarting in ${Math.round(waitMs / 1000)}s (retry ${retries}/${config.maxRetries})...\n`);
+    await new Promise((r) => setTimeout(r, waitMs));
+
+    // Re-spawn Claude
+    process.stderr.write(`[claude-auto-retry] Restarting Claude...\n`);
   }
-
-  // Forward SIGWINCH for terminal resize
-  process.on('SIGWINCH', () => {
-    try { claude.kill('SIGWINCH'); } catch {}
-  });
-
-  // Start monitor as detached background process
-  if (pane) {
-    const monitor = fork(MONITOR_PATH, [pane, String(claude.pid)], {
-      detached: true,
-      stdio: 'ignore',
-    });
-    monitor.unref();
-  }
-
-  // Forward signals to Claude
-  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-    process.on(sig, () => {
-      try { claude.kill(sig); } catch {}
-    });
-  }
-
-  return new Promise((resolve) => {
-    claude.on('exit', (code) => resolve(code ?? 1));
-  });
 }
 
 async function launchPrintMode(args) {

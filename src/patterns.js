@@ -73,15 +73,14 @@ export function isRateLimited(text, customPatterns = []) {
 export function findRateLimitMessage(text, customPatterns = []) {
   const lines = stripAnsi(text).split('\n');
 
-  // Return the "resets" line — that's what parseResetTime needs
+  // Return the LAST "resets" line — the most recent time is most accurate
+  // when rate limit persists across multiple lines/polls
+  let lastReset = null;
+  let lastLimit = null;
   for (const line of lines) {
-    if (RESET_PATTERNS.some(p => p.test(line))) return line.trim();
+    if (RESET_PATTERNS.some(p => p.test(line))) lastReset = line.trim();
+    else if (LIMIT_PATTERNS.some(p => p.test(line))) lastLimit = line.trim();
   }
 
-  // Fallback: any "limit" line
-  for (const line of lines) {
-    if (LIMIT_PATTERNS.some(p => p.test(line))) return line.trim();
-  }
-
-  return null;
+  return lastReset || lastLimit || null;
 }
