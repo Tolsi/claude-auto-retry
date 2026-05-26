@@ -8,7 +8,13 @@ export function buildCaptureArgs(pane, lines = 200) {
 }
 
 export function buildSendKeysArgs(pane, text) {
-  return ['send-keys', '-t', pane, text, 'Enter'];
+  // Use -l flag to send text literally, then C-m to send (carriage return/Enter)
+  // This ensures special characters and spaces in the text are handled correctly
+  if (text) {
+    return [['send-keys', '-t', pane, '-l', text], ['send-keys', '-t', pane, 'C-m']];
+  }
+  // For empty string, just send C-m
+  return [['send-keys', '-t', pane, 'C-m']];
 }
 
 export function buildDisplayArgs(pane, format) {
@@ -32,7 +38,16 @@ export async function capturePane(pane, lines = 200) {
 }
 
 export async function sendKeys(pane, text) {
-  await execFileAsync('tmux', buildSendKeysArgs(pane, text));
+  const args = buildSendKeysArgs(pane, text);
+  // If buildSendKeysArgs returns nested arrays (multiple commands), execute them sequentially
+  if (Array.isArray(args[0])) {
+    for (const cmdArgs of args) {
+      await execFileAsync('tmux', cmdArgs);
+    }
+  } else {
+    // Single command
+    await execFileAsync('tmux', args);
+  }
 }
 
 export async function getPaneCommand(pane) {
