@@ -6,9 +6,11 @@ import { DEFAULT_CONFIG } from '../src/config.js';
 function mockTmux(paneContent = '', paneCommand = 'node', claudeForeground = true) {
   const t = {
     _sent: [],
+    _enters: 0,
     capturePane: async () => paneContent,
     getPaneCommand: async () => paneCommand,
     sendKeys: async (_p, text) => { t._sent.push(text); },
+    sendEnter: async () => { t._enters++; },
     isClaudeForeground: async () => claudeForeground,
   };
   return t;
@@ -110,5 +112,16 @@ describe('processOneTick', () => {
     // Rate limit cleared → should detect user-continued before max-retries check
     assert.equal(await processOneTick(s, t, '%0', DEFAULT_CONFIG, () => true), 'user-continued');
     assert.equal(s.attempts, 0);
+  });
+  it('isLimitPrompt: sends Enter (not sendKeys), transitions to waiting', async () => {
+    const prompt = 'What do you want to do?\n❯ 1. Stop and wait for limit to reset\n  2. Upgrade your plan';
+    const t = mockTmux(prompt);
+    const s = createMonitorState();
+    const result = await processOneTick(s, t, '%0', DEFAULT_CONFIG, () => true);
+    assert.equal(result, 'prompt-confirmed');
+    assert.equal(t._enters, 1);
+    assert.equal(t._sent.length, 0);
+    assert.equal(s.status, 'waiting');
+    assert.ok(s.waitUntil > Date.now());
   });
 });

@@ -113,21 +113,7 @@ export function calculateWaitMs(parsed, marginSeconds = 60, fallbackHours = 5, n
     return candidate;
   }
 
-  // Capture getTargetTimestamp's final candidate to avoid confusion with
-  // the local variable name below. getTargetTimestamp is called multiple
-  // times (ambiguous branch, and the final diff calc) so we capture the
-  // first call's result for the roll-back logic.
   let todayReset = getTargetTimestamp(parsed.hour, parsed.minute);
-
-  // The iterative correction may converge on tomorrow's occurrence when
-  // the initial UTC guess (line 66) lands past midnight in the target
-  // timezone. This happens for all UTC+ zones (e.g. Europe/Warsaw UTC+2:
-  // "22:00Z" = 00:00 Warsaw → correction adds 22h → tomorrow's 10pm).
-  // Roll back one day if today's occurrence is still in the future.
-  const prevDay = todayReset - 86400_000;
-  if (prevDay > now.getTime()) {
-    todayReset = prevDay;
-  }
 
   if (parsed.ambiguous) {
     const t1 = getTargetTimestamp(parsed.hour, parsed.minute);

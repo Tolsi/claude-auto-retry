@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isInsideTmux, getCurrentPane, capturePane, getTmuxVersion, buildSetWindowOptionArgs } from './tmux.js';
-import { isRateLimited } from './patterns.js';
+import { isRateLimited, findRateLimitMessage } from './patterns.js';
 import { parseResetTime, calculateWaitMs } from './time-parser.js';
 import { loadConfig } from './config.js';
 
@@ -33,11 +33,22 @@ async function launchInteractive(args) {
   const config = await loadConfig();
   let retries = 0;
 
+  // Signal handlers registered once, referencing a mutable holder so they
+  // always forward to the currently-running Claude process without leaking
+  // a new listener on every retry.
+  const currentClaude = { ref: null };
+  const sigwinchHandler = () => { try { currentClaude.ref?.kill('SIGWINCH'); } catch {} };
+  process.on('SIGWINCH', sigwinchHandler);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(sig, () => { try { currentClaude.ref?.kill(sig); } catch {} });
+  }
+
   while (true) {
     const claude = spawn(claudeBin, args, {
       stdio: 'inherit',
       env: { ...process.env, CLAUDE_AUTO_RETRY_ACTIVE: '1' },
     });
+    currentClaude.ref = claude;
 
     if (claude.pid == null) {
       claude.on('error', (err) => {
@@ -50,11 +61,6 @@ async function launchInteractive(args) {
       return exitCode;
     }
 
-    // Forward SIGWINCH for terminal resize
-    process.on('SIGWINCH', () => {
-      try { claude.kill('SIGWINCH'); } catch {}
-    });
-
     // Start monitor as detached background process (first iteration only)
     if (retries === 0 && pane) {
       const monitor = fork(MONITOR_PATH, [pane, String(claude.pid)], {
@@ -62,13 +68,6 @@ async function launchInteractive(args) {
         stdio: 'ignore',
       });
       monitor.unref();
-    }
-
-    // Forward signals to Claude
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-      process.on(sig, () => {
-        try { claude.kill(sig); } catch {}
-      });
     }
 
     const exitCode = await new Promise((resolve) => {
@@ -91,7 +90,7 @@ async function launchInteractive(args) {
       return exitCode;
     }
 
-    const rateLimitMsg = paneText.split('\n').reverse().find(l => /resets?\s+in/i.test(l)) || paneText;
+    const rateLimitMsg = findRateLimitMessage(paneText, config.customPatterns) || paneText;
     const parsed = parseResetTime(rateLimitMsg);
     const waitMs = calculateWaitMs(parsed, config.marginSeconds, config.fallbackWaitHours);
 

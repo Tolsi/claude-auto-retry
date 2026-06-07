@@ -1,6 +1,6 @@
 import { stripAnsi, isRateLimited, findRateLimitMessage, isLimitPrompt } from './patterns.js';
 import { parseResetTime, calculateWaitMs } from './time-parser.js';
-import { capturePane, sendKeys, getPaneCommand, isProcessForeground } from './tmux.js';
+import { capturePane, sendKeys, sendEnter, getPaneCommand, isProcessForeground } from './tmux.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 
@@ -107,8 +107,9 @@ export async function processOneTick(state, tmuxAdapter, pane, config, isAlive) 
 
   // Detect the interactive "What do you want to do?" prompt and auto-select "Stop and wait"
   if (isLimitPrompt(stripped)) {
+    state.status = 'waiting';
     state.waitUntil = Date.now() + 30_000;
-    await tmuxAdapter.sendKeys(pane, '');  // Empty string = just press Enter
+    await tmuxAdapter.sendEnter(pane);
     return 'prompt-confirmed';
   }
 
@@ -124,7 +125,7 @@ export async function startMonitor(pane, pid) {
 
   await logger.info(`Monitor started for pane ${pane} (claude PID: ${pid})`);
 
-  const tmuxAdapter = { capturePane, sendKeys, getPaneCommand, isClaudeForeground: () => isProcessForeground(pid) };
+  const tmuxAdapter = { capturePane, sendKeys, sendEnter, getPaneCommand, isClaudeForeground: () => isProcessForeground(pid) };
   const isAlive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
   const loop = async () => {
