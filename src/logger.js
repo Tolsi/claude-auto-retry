@@ -11,6 +11,15 @@ function timestamp() {
   return new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
 }
 
+// Strip control characters (except none — entries are single-line) so a
+// crafted rate-limit message captured from the pane can't forge log lines
+// or rewrite the terminal when the log is `cat`-ed. Covers \r, \n, \t, \b,
+// and other C0/C1 control bytes.
+function sanitize(message) {
+  // eslint-disable-next-line no-control-regex
+  return String(message).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
+}
+
 function todayFile(dir) {
   return join(dir, `${new Date().toISOString().split('T')[0]}.log`);
 }
@@ -36,7 +45,7 @@ export function createLogger(dir = DEFAULT_LOG_DIR) {
   }
   async function log(level, message) {
     await ensureDir();
-    await appendFile(todayFile(dir), `[${timestamp()}] [${level}] ${message}\n`);
+    await appendFile(todayFile(dir), `[${timestamp()}] [${level}] ${sanitize(message)}\n`);
     cleanup(dir);
   }
   return {

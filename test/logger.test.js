@@ -34,4 +34,15 @@ describe('createLogger', () => {
     assert.ok(content.includes('[WARN]'));
     assert.ok(content.includes('[ERROR]'));
   });
+  it('sanitizes control characters to prevent log forging', async () => {
+    const logger = createLogger(testDir);
+    await logger.info('safe\n[2099-01-01 00:00:00] [ERROR] forged\rline\tend');
+    const today = new Date().toISOString().split('T')[0];
+    const content = await readFile(join(testDir, `${today}.log`), 'utf-8');
+    // Exactly one log line (the message's embedded newline must not create a second)
+    assert.equal(content.trim().split('\n').length, 1);
+    assert.ok(!content.includes('\r'));
+    assert.ok(!content.includes('\t'));
+    assert.ok(content.includes('forged line end'));
+  });
 });

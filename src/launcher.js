@@ -43,6 +43,12 @@ async function launchInteractive(args) {
     process.on(sig, () => { try { currentClaude.ref?.kill(sig); } catch {} });
   }
 
+  // The monitor tracks a specific Claude PID. When we respawn Claude after a
+  // rate limit, the old PID is dead and its monitor would self-exit, leaving
+  // the new Claude unmonitored. Re-fork a monitor for each spawn and kill the
+  // previous one so exactly one monitor tracks the live process.
+  let monitorProc = null;
+
   while (true) {
     const claude = spawn(claudeBin, args, {
       stdio: 'inherit',
@@ -61,13 +67,14 @@ async function launchInteractive(args) {
       return exitCode;
     }
 
-    // Start monitor as detached background process (first iteration only)
-    if (retries === 0 && pane) {
-      const monitor = fork(MONITOR_PATH, [pane, String(claude.pid)], {
+    // Start a monitor for the freshly-spawned Claude; retire any prior one.
+    if (pane) {
+      if (monitorProc) { try { monitorProc.kill(); } catch {} }
+      monitorProc = fork(MONITOR_PATH, [pane, String(claude.pid)], {
         detached: true,
         stdio: 'ignore',
       });
-      monitor.unref();
+      monitorProc.unref();
     }
 
     const exitCode = await new Promise((resolve) => {
