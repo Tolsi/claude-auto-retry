@@ -6,7 +6,7 @@ When Claude Code shows *"5-hour limit reached - resets 3pm"*, this tool waits fo
 
 **No dependencies. No workflow change. Just install and forget.**
 
-[![npm version](https://img.shields.io/npm/v/claude-auto-retry.svg)](https://www.npmjs.com/package/claude-auto-retry)
+[![npm version](https://img.shields.io/npm/v/@tolsi/claude-auto-retry.svg)](https://www.npmjs.com/package/@tolsi/claude-auto-retry)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org)
 
@@ -25,9 +25,11 @@ Claude stops. You have to wait hours, come back, and type "continue". If you're 
 ## The Solution
 
 ```bash
-npm i -g claude-auto-retry
+npm i -g @tolsi/claude-auto-retry
 claude-auto-retry install
 ```
+
+> This is a fork of [`claude-auto-retry`](https://www.npmjs.com/package/claude-auto-retry) with additional bug and security fixes. The CLI command stays `claude-auto-retry`.
 
 That's it. Type `claude` as you always do. When the rate limit hits, the tool:
 
@@ -187,7 +189,7 @@ Logs rotate daily. Files older than 7 days are cleaned automatically.
 
 ```bash
 claude-auto-retry uninstall
-npm uninstall -g claude-auto-retry
+npm uninstall -g @tolsi/claude-auto-retry
 ```
 
 This removes the shell function from your rc files. tmux is left installed.
