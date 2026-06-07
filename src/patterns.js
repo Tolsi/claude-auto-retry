@@ -23,7 +23,7 @@ export function stripAnsi(text) {
 // Detection: find a "limit" line and a "resets" line within 6 lines of each other.
 
 const LIMIT_PATTERNS = [
-  /(?:hit|exceeded|reached).*(?:your|the)\s*(?:\d+-hour\s+)?limit/i,  // "hit/exceeded/reached your limit"
+  /(?:hit|exceeded|reached).*?limit/i,              // "hit/exceeded/reached ... limit" (handles "You've hit your session limit")
   /\d+-hour limit/i,                                // "5-hour limit"
   /limit reached/i,                                  // "limit reached"
   /usage limit/i,                                    // "usage limit"
@@ -88,4 +88,15 @@ export function findRateLimitMessage(text, customPatterns = []) {
   }
 
   return null;
+}
+
+// Detects the interactive Claude Code prompt asking user to wait or upgrade
+// "What do you want to do?"
+// "❯ 1. Stop and wait for limit to reset"
+// "  2. Upgrade your plan"
+// We auto-select option 1 by sending Enter
+export function isLimitPrompt(text) {
+  const stripped = stripAnsi(text);
+  return /What do you want to do\?/i.test(stripped) &&
+         /Stop and wait.*limit/i.test(stripped);
 }

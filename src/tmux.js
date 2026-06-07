@@ -28,7 +28,13 @@ export function buildCaptureArgs(pane, lines = 200) {
  * buildSendEnterArgs with a delay between them instead.
  */
 export function buildSendKeysArgs(pane, text) {
-  return ['send-keys', '-t', pane, text, 'Enter'];
+  // Use -l flag to send text literally, then C-m to send (carriage return/Enter)
+  // This ensures special characters and spaces in the text are handled correctly
+  if (text) {
+    return [['send-keys', '-t', pane, '-l', text], ['send-keys', '-t', pane, 'C-m']];
+  }
+  // For empty string, just send C-m
+  return [['send-keys', '-t', pane, 'C-m']];
 }
 
 export function buildSendLiteralArgs(pane, text) {
