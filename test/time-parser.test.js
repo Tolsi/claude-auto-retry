@@ -114,4 +114,37 @@ describe('calculateWaitMs', () => {
     assert.ok(waitHours > 22 && waitHours < 25,
       `Expected ~23.5h wait, got ${waitHours.toFixed(2)}h`);
   });
+
+  // Regression: in tz with positive UTC offset, e.g. 10:02 AM Melbourne (UTC+10)
+  // looking for "11:40pm Melbourne" should wait ~13.6h (today), not ~37.6h (tomorrow).
+  it('targets today for a future reset in a positive-offset timezone', () => {
+    const now = new Date('2026-05-03T00:02:15Z'); // 10:02 AM in Melbourne (UTC+10)
+    const wait = calculateWaitMs(
+      { hour: 23, minute: 40, timezone: 'Australia/Melbourne' }, 60, 5, now
+    );
+    const hours = wait / 3600_000;
+    assert.ok(hours > 13 && hours < 14, `expected ~13.6h, got ${hours.toFixed(2)}h`);
+  });
+
+  // Regression: in tz with negative UTC offset, "resets 3am NY" at 1am NY
+  // should wait ~2h, not target tomorrow.
+  it('targets today for a future reset in a negative-offset timezone', () => {
+    const now = new Date('2026-05-03T05:00:00Z'); // 1:00 AM in New York (UTC-4 EDT)
+    const wait = calculateWaitMs(
+      { hour: 3, minute: 0, timezone: 'America/New_York' }, 60, 5, now
+    );
+    const hours = wait / 3600_000;
+    assert.ok(hours > 1.9 && hours < 2.1, `expected ~2h, got ${hours.toFixed(2)}h`);
+  });
+
+  // Regression: reset time already passed today should target tomorrow (~24h away),
+  // not 48h. Covers the symmetric case for the off-by-a-day bug.
+  it('targets tomorrow when reset time already passed today', () => {
+    const now = new Date('2026-05-03T15:00:00Z'); // 1:00 AM next day in Melbourne
+    const wait = calculateWaitMs(
+      { hour: 23, minute: 40, timezone: 'Australia/Melbourne' }, 60, 5, now
+    );
+    const hours = wait / 3600_000;
+    assert.ok(hours > 22 && hours < 23, `expected ~22.6h, got ${hours.toFixed(2)}h`);
+  });
 });
