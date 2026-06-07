@@ -6,6 +6,16 @@ const execFileAsync = promisify(execFileCb);
 const SEND_ENTER_DELAY_MS = 300;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Submit delay: when sending a message to a TUI like Claude Code (Ink-based),
+// the text and the submitting Enter must be sent as TWO separate tmux send-keys
+// calls with a brief pause between them. Without the pause, Ink on Linux often:
+//   - interprets the Enter as a newline within a bracketed-paste burst and just
+//     inserts "\n" into the input box instead of submitting (most common case)
+//   - or processes the Enter before React reconciliation has incorporated the
+//     text into input state, dropping the submit
+// 150ms is empirically reliable across Linux + macOS for Claude Code.
+export const SUBMIT_DELAY_MS = 150;
+
 export function buildCaptureArgs(pane, lines = 200) {
   return ['capture-pane', '-t', pane, '-p', '-S', `-${lines}`];
 }
@@ -25,6 +35,12 @@ export function buildSendLiteralArgs(pane, text) {
   return ['send-keys', '-t', pane, '-l', text];
 }
 
+// Split form: text-only (no Enter), no -l flag.
+export function buildSendTextArgs(pane, text) {
+  return ['send-keys', '-t', pane, text];
+}
+
+// Split form: bare Enter.
 export function buildSendEnterArgs(pane) {
   return ['send-keys', '-t', pane, 'Enter'];
 }
