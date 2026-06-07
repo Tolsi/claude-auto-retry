@@ -1,6 +1,6 @@
 {
   "name": "@tolsi/claude-auto-retry",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Automatically retry Claude Code sessions when hitting Anthropic subscription rate limits (fork with bug/security fixes)",
   "type": "module",
   "bin": {

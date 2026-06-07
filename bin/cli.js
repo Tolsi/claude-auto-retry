@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { localDateString } from '../src/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -164,7 +165,7 @@ async function cmdUninstall() {
 
 async function cmdStatus() {
   const logDir = join(homedir(), '.claude-auto-retry', 'logs');
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateString();
   const logFile = join(logDir, `${today}.log`);
   try {
     const content = await readFile(logFile, 'utf-8');
@@ -179,7 +180,7 @@ async function cmdStatus() {
 
 async function cmdLogs() {
   const logDir = join(homedir(), '.claude-auto-retry', 'logs');
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateString();
   const logFile = join(logDir, `${today}.log`);
   if (!existsSync(logFile)) {
     console.log(`No log file for today: ${logFile}`);

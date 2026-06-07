@@ -7,8 +7,17 @@ const MAX_AGE_DAYS = 7;
 const CLEANUP_INTERVAL_MS = 3600_000;
 let lastCleanup = 0;
 
+const pad = (n) => String(n).padStart(2, '0');
+
+// Local-time date string (YYYY-MM-DD) for log file names. Using local time
+// (not UTC) keeps log rotation aligned with the user's calendar day.
+export function localDateString(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function timestamp() {
-  return new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+  const d = new Date();
+  return `${localDateString(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 // Strip control characters (except none — entries are single-line) so a
@@ -21,7 +30,7 @@ function sanitize(message) {
 }
 
 function todayFile(dir) {
-  return join(dir, `${new Date().toISOString().split('T')[0]}.log`);
+  return join(dir, `${localDateString()}.log`);
 }
 
 async function cleanup(dir) {
