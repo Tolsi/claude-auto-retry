@@ -75,6 +75,13 @@ export async function sendEnter(pane) {
   await execFileAsync('tmux', buildSendEnterArgs(pane));
 }
 
+export async function sendKeySequence(pane, keys, delayMs = 250) {
+  for (let i = 0; i < keys.length; i++) {
+    await execFileAsync('tmux', ['send-keys', '-t', pane, keys[i]]);
+    if (i < keys.length - 1) await sleep(delayMs);
+  }
+}
+
 export async function getPaneCommand(pane) {
   const { stdout } = await execFileAsync('tmux', buildDisplayArgs(pane, '#{pane_current_command}'));
   return stdout.trim();

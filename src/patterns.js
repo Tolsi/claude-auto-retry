@@ -102,3 +102,37 @@ export function isLimitPrompt(text) {
   return /What do you want to do\?/i.test(stripped) &&
          /Stop and wait.*limit/i.test(stripped);
 }
+
+// Detects the spend-limit menu ("Adjust monthly spend limit" variant) and
+// returns the key sequence needed to navigate to "Wait for limit to reset".
+// Returns null when the menu is absent or not the spend-limit variant.
+export function findSpendLimitMenuAction(text) {
+  const lines = stripAnsi(text).split('\n');
+  let promptIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/What do you want to do\?/i.test(lines[i])) { promptIdx = i; break; }
+  }
+  if (promptIdx === -1) return null;
+
+  const block = lines.slice(promptIdx, Math.min(lines.length, promptIdx + 8));
+
+  const hasSpendLimitOption = block.some(l => /Adjust monthly spend limit/i.test(l));
+  const waitOffset = block.findIndex(l => /Wait for limit to reset/i.test(l));
+  if (!hasSpendLimitOption || waitOffset === -1) return null;
+
+  const selectedOffset = block.findIndex(l => /^[\s]*[❯>]/.test(l));
+  const waitIdx = promptIdx + waitOffset;
+  const selectedIdx = selectedOffset === -1 ? -1 : promptIdx + selectedOffset;
+  const keys = [];
+
+  if (selectedIdx === -1) {
+    keys.push('Down');
+  } else if (selectedIdx < waitIdx) {
+    keys.push(...Array(waitIdx - selectedIdx).fill('Down'));
+  } else if (selectedIdx > waitIdx) {
+    keys.push(...Array(selectedIdx - waitIdx).fill('Up'));
+  }
+
+  keys.push('Enter');
+  return { keys };
+}

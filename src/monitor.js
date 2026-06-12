@@ -1,10 +1,24 @@
-import { stripAnsi, isRateLimited, findRateLimitMessage, isLimitPrompt } from './patterns.js';
+import { stripAnsi, isRateLimited, findRateLimitMessage, isLimitPrompt, findSpendLimitMenuAction } from './patterns.js';
 import { parseResetTime, calculateWaitMs } from './time-parser.js';
-import { capturePane, sendKeys, sendEnter, getPaneCommand, isProcessForeground } from './tmux.js';
+import { capturePane, sendKeys, sendEnter, sendKeySequence, getPaneCommand, isProcessForeground } from './tmux.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 
 const DEFAULT_FOREGROUND_COMMANDS = ['node', 'claude', 'npx', 'tsx', 'bun', 'deno'];
+const MENU_ACTION_COOLDOWN_MS = 15_000;
+
+// Claude Code shows activity indicators while actively processing. Rate-limit
+// text can linger in scrollback even when Claude is mid-response, so we avoid
+// false positive rate-limit detection when these patterns are visible.
+function isClaudeBusy(text) {
+  return /\bHerding\b/i.test(text)
+    || /\b(?:Booping|Cooking|Brewing|Brewed|Sautéing|Sauteing)\b/i.test(text)
+    || /still thinking/i.test(text)
+    || /thinking (?:with|more|hard|.*effort)/i.test(text)
+    || /\([^)]+tokens\)/i.test(text)
+    || /\b\d+[smh]\s*·\s*↓\s*[\d.]+[kM]?\s*tokens\b/i.test(text)
+    || (/esc to interrupt/i.test(text) && /(?:tokens|↓ to manage|Backgrounded agent|Agent\()/i.test(text));
+}
 
 // Signature of the bottom of the pane — used to detect whether Claude has
 // actually started responding after we sent a retry message. The rate-limit
@@ -18,7 +32,7 @@ function paneSignature(stripped) {
 }
 
 export function createMonitorState() {
-  return { status: 'monitoring', waitUntil: 0, attempts: 0, lastRateLimitMessage: null, _sigBeforeSend: null };
+  return { status: 'monitoring', waitUntil: 0, attempts: 0, lastRateLimitMessage: null, _sigBeforeSend: null, menuActionCooldownUntil: 0 };
 }
 
 export async function processOneTick(state, tmuxAdapter, pane, config, isAlive) {
@@ -26,6 +40,22 @@ export async function processOneTick(state, tmuxAdapter, pane, config, isAlive) 
 
   const raw = await tmuxAdapter.capturePane(pane, 20);
   const stripped = stripAnsi(raw);
+
+  const spendLimitAction = findSpendLimitMenuAction(stripped);
+  if (spendLimitAction && Date.now() >= state.menuActionCooldownUntil) {
+    state.menuActionCooldownUntil = Date.now() + MENU_ACTION_COOLDOWN_MS;
+    if (state.status !== 'waiting') {
+      const message = findRateLimitMessage(stripped, config.customPatterns);
+      state.lastRateLimitMessage = message;
+      state.waitUntil = Date.now() + calculateWaitMs(
+        message ? parseResetTime(message) : null,
+        config.marginSeconds, config.fallbackWaitHours
+      );
+      state.status = 'waiting';
+    }
+    await tmuxAdapter.sendKeySequence(pane, spendLimitAction.keys);
+    return 'selected-wait-for-reset';
+  }
 
   if (state.status === 'waiting') {
     if (Date.now() < state.waitUntil) return 'waiting';
@@ -84,7 +114,7 @@ export async function processOneTick(state, tmuxAdapter, pane, config, isAlive) 
     return 'retried';
   }
 
-  if (isRateLimited(stripped, config.customPatterns)) {
+  if (!isClaudeBusy(stripped) && isRateLimited(stripped, config.customPatterns)) {
     const message = findRateLimitMessage(stripped, config.customPatterns);
     const parsed = message ? parseResetTime(message) : null;
     const waitMs = calculateWaitMs(parsed, config.marginSeconds, config.fallbackWaitHours);
@@ -125,7 +155,7 @@ export async function startMonitor(pane, pid) {
 
   await logger.info(`Monitor started for pane ${pane} (claude PID: ${pid})`);
 
-  const tmuxAdapter = { capturePane, sendKeys, sendEnter, getPaneCommand, isClaudeForeground: () => isProcessForeground(pid) };
+  const tmuxAdapter = { capturePane, sendKeys, sendEnter, sendKeySequence, getPaneCommand, isClaudeForeground: () => isProcessForeground(pid) };
   const isAlive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
   const loop = async () => {
@@ -139,6 +169,7 @@ export async function startMonitor(pane, pid) {
         await logger.info(`Rate limit detected: "${state.lastRateLimitMessage}". Waiting ${secs}s...`);
         state.lastRateLimitMessage = null;
       }
+      if (result === 'selected-wait-for-reset') await logger.info('Detected spend-limit menu. Navigated to "Wait for limit to reset".');
       if (result === 'retried') await logger.info(`Sent retry message (attempt ${state.attempts})`);
       if (result === 'user-continued') await logger.info('User already continued. Attempt counter reset.');
       if (result === 'prompt-confirmed') await logger.info('Limit prompt detected. Sent Enter to select "Stop and wait for limit to reset".');

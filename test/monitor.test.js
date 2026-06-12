@@ -7,10 +7,12 @@ function mockTmux(paneContent = '', paneCommand = 'node', claudeForeground = tru
   const t = {
     _sent: [],
     _enters: 0,
+    _keySequences: [],
     capturePane: async () => paneContent,
     getPaneCommand: async () => paneCommand,
     sendKeys: async (_p, text) => { t._sent.push(text); },
     sendEnter: async () => { t._enters++; },
+    sendKeySequence: async (_p, keys) => { t._keySequences.push(keys); },
     isClaudeForeground: async () => claudeForeground,
   };
   return t;
@@ -123,5 +125,50 @@ describe('processOneTick', () => {
     assert.equal(t._sent.length, 0);
     assert.equal(s.status, 'waiting');
     assert.ok(s.waitUntil > Date.now());
+  });
+  it('spend-limit menu: navigates to "Wait for limit to reset" and enters waiting', async () => {
+    const text = [
+      'What do you want to do?',
+      '❯ Adjust monthly spend limit: Unlimited',
+      '  Wait for limit to reset',
+      '  Resets 11:20pm (America/New_York)',
+    ].join('\n');
+    const t = mockTmux(text);
+    const s = createMonitorState();
+    assert.equal(await processOneTick(s, t, '%0', DEFAULT_CONFIG, () => true), 'selected-wait-for-reset');
+    assert.deepEqual(t._keySequences, [['Down', 'Enter']]);
+    assert.equal(t._sent.length, 0);
+    assert.equal(s.status, 'waiting');
+    assert.ok(s.waitUntil > Date.now());
+  });
+  it('spend-limit menu: respects cooldown, does not re-navigate within cooldown window', async () => {
+    const text = [
+      'What do you want to do?',
+      '❯ Adjust monthly spend limit: Unlimited',
+      '  Wait for limit to reset',
+      '  Resets 11:20pm (America/New_York)',
+    ].join('\n');
+    const t = mockTmux(text);
+    const s = createMonitorState();
+    s.status = 'waiting';
+    s.waitUntil = Date.now() + 60_000;
+    s.menuActionCooldownUntil = Date.now() + 15_000;
+    assert.equal(await processOneTick(s, t, '%0', DEFAULT_CONFIG, () => true), 'waiting');
+    assert.equal(t._keySequences.length, 0);
+  });
+  it('isClaudeBusy: skips rate-limit detection when Claude is actively thinking', async () => {
+    const text = '5-hour limit reached - resets 3pm (UTC)\n✽ Booping… (1m 43s · ↓ 5.6k tokens)';
+    const t = mockTmux(text);
+    const s = createMonitorState();
+    assert.equal(await processOneTick(s, t, '%0', DEFAULT_CONFIG, () => true), 'monitoring');
+    assert.equal(t._sent.length, 0);
+    assert.equal(s.status, 'monitoring');
+  });
+  it('isClaudeBusy: skips rate-limit detection with Herding indicator', async () => {
+    const text = 'You\'ve hit your session limit · resets 4pm (UTC)\n· Herding… (3m · thinking with xhigh effort)';
+    const t = mockTmux(text);
+    const s = createMonitorState();
+    assert.equal(await processOneTick(s, t, '%0', DEFAULT_CONFIG, () => true), 'monitoring');
+    assert.equal(s.status, 'monitoring');
   });
 });

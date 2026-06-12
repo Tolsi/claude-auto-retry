@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { stripAnsi, isRateLimited, findRateLimitMessage } from '../src/patterns.js';
+import { stripAnsi, isRateLimited, findRateLimitMessage, findSpendLimitMenuAction } from '../src/patterns.js';
 
 describe('stripAnsi', () => {
   it('removes bold codes', () => {
@@ -124,6 +124,36 @@ describe('isRateLimited (multi-line TUI renders)', () => {
   });
   it('rejects normal output with no rate limit keywords', () => {
     assert.equal(isRateLimited('Working on your request\nHere is the code\nDone'), false);
+  });
+});
+
+describe('findSpendLimitMenuAction', () => {
+  it('returns Down+Enter when wait option is below cursor', () => {
+    const text = 'What do you want to do?\n❯ Adjust monthly spend limit: Unlimited\n  Wait for limit to reset\n  Upgrade to Max';
+    assert.deepEqual(findSpendLimitMenuAction(text), { keys: ['Down', 'Enter'] });
+  });
+  it('returns Enter when wait option is already selected', () => {
+    const text = 'What do you want to do?\n  Adjust monthly spend limit: Unlimited\n❯ Wait for limit to reset\n  Upgrade to Max';
+    assert.deepEqual(findSpendLimitMenuAction(text), { keys: ['Enter'] });
+  });
+  it('returns null for normal output', () => {
+    assert.equal(findSpendLimitMenuAction('Normal Claude output'), null);
+  });
+  it('returns null when "Adjust monthly spend limit" is absent (different menu)', () => {
+    const text = 'What do you want to do?\n❯ Retry request\n  Wait for limit to reset\n  Cancel';
+    assert.equal(findSpendLimitMenuAction(text), null);
+  });
+  it('uses last "What do you want to do?" block — ignores earlier stale menu', () => {
+    const text = [
+      'What do you want to do?',
+      '❯ Adjust monthly spend limit: Unlimited',
+      '  Wait for limit to reset',
+      'Some later output',
+      'What do you want to do?',
+      '❯ Open conversation history',
+      '  Cancel',
+    ].join('\n');
+    assert.equal(findSpendLimitMenuAction(text), null);
   });
 });
 
